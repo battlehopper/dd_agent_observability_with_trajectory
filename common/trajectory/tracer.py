@@ -168,18 +168,7 @@ class TrajectorySpan:
             tags["trajectory.llm_call"] = "true"
             if self.model_name:
                 tags["gen_ai.request.model"] = self.model_name
-        io_input: dict[str, Any] = {}
-        if self.input_messages:
-            io_input["messages"] = self.input_messages
-        if self.input_value is not None:
-            io_input["value"] = self.input_value
-        io_output: dict[str, Any] = {}
-        if self.output_messages:
-            io_output["messages"] = self.output_messages
-        if self.output_documents:
-            io_output["documents"] = self.output_documents
-        if self.output_value is not None:
-            io_output["value"] = self.output_value
+        io_input, io_output = self._io_payload()
         meta: dict[str, Any] = {"kind": self.kind, "metadata": {k: _meta_value(v) for k, v in self.metadata.items()}}
         if io_input:
             meta["input"] = io_input
@@ -210,6 +199,27 @@ class TrajectorySpan:
         if self.metrics:
             payload["metrics"] = {k: float(v) for k, v in self.metrics.items()}
         return payload
+
+    def _io_payload(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        io_input: dict[str, Any] = {}
+        io_output: dict[str, Any] = {}
+        if self.kind == "llm":
+            if self.input_messages:
+                io_input["messages"] = self.input_messages
+            elif self.input_value is not None:
+                io_input["messages"] = [{"role": "user", "content": self.input_value}]
+            if self.output_messages:
+                io_output["messages"] = self.output_messages
+            elif self.output_value is not None:
+                io_output["messages"] = [{"role": "assistant", "content": self.output_value}]
+            return io_input, io_output
+        if self.input_value is not None:
+            io_input["value"] = self.input_value
+        if self.output_documents:
+            io_output["documents"] = self.output_documents
+        if self.output_value is not None:
+            io_output["value"] = self.output_value
+        return io_input, io_output
 
 
 def _meta_value(value: Any) -> str | float | bool:

@@ -33,6 +33,7 @@ def test_span_tree_and_payload(settings: Settings) -> None:
                 llm.annotate(
                     input_messages=[{"role": "user", "content": "oi"}],
                     output_messages=[{"role": "assistant", "content": "olá"}],
+                    output_value="olá",
                     model_name="mock-retail-concierge",
                     model_provider="mock",
                     metrics={"input_tokens": 2, "output_tokens": 1, "total_tokens": 3},
@@ -51,6 +52,10 @@ def test_span_tree_and_payload(settings: Settings) -> None:
     assert kinds["retail-concierge"]["parent_id"] == kinds["retail-customer-chat"]["span_id"]
     assert kinds["concierge-inference"]["meta"]["kind"] == "llm"
     assert kinds["concierge-inference"]["metrics"]["total_tokens"] == 3.0
+    llm_meta = kinds["concierge-inference"]["meta"]
+    assert "value" not in llm_meta.get("input", {})
+    assert "value" not in llm_meta.get("output", {})
+    assert llm_meta["input"]["messages"][0]["content"] == "oi"
     assert kinds["retail-customer-chat"]["span_id"].isdigit()
     assert len(kinds["retail-customer-chat"]["trace_id"]) == 32
     tags = kinds["concierge-inference"]["tags"]
