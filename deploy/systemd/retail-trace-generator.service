@@ -1,0 +1,12 @@
+[Unit]
+Description=Gera um trace LLM Observability do agente retail
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/llmagent
+Environment=GATEWAY_URL=http://127.0.0.1:8001
+Environment=TRACE_LOG=/var/log/retail-trace.log
+ExecStart=/root/llmagent/scripts/generate-trace.sh
+User=root

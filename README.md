@@ -202,6 +202,17 @@ curl -s -X POST "http://<IP_EC2>:8001/chat" \
 
 No Datadog, filtre LLM Observability por `ml_app:retail-assistant` e `env:aws-ec2`.
 
+Traces a cada 5 minutos (gateway local):
+
+```bash
+git pull
+chmod +x scripts/*.sh
+./scripts/generate-trace.sh          # um trace agora
+./scripts/install-trace-timer.sh     # systemd timer (como root)
+# journalctl -u retail-trace-generator.service -n 20
+# tail -f /var/log/retail-trace.log
+```
+
 ### 6. Reinício automático (systemd)
 
 Ajuste `User` e `WorkingDirectory` em `deploy/systemd/retail-multiagent.service` se o path ou o usuário não forem `ec2-user` / `/opt/llmagent` (no Ubuntu o usuário costuma ser `ubuntu`):
