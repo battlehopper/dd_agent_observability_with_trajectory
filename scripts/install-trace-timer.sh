@@ -18,7 +18,8 @@ if command -v systemctl >/dev/null 2>&1 && [[ -d /etc/systemd/system ]]; then
   touch /var/log/retail-trace.log
   systemctl daemon-reload
   systemctl enable --now retail-trace-generator.timer
-  systemctl start retail-trace-generator.service
+  echo "Aguardando gateway em http://127.0.0.1:8001/health..."
+  GATEWAY_WAIT_SECS=90 systemctl start retail-trace-generator.service
   echo "Timer ativo: a cada 5 minutos chama ${ROOT}/scripts/generate-trace.sh"
   echo "  systemctl status retail-trace-generator.timer"
   echo "  journalctl -u retail-trace-generator.service -n 20"
