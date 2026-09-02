@@ -1,83 +1,99 @@
 #!/usr/bin/env bash
-# Envia um span mínimo ao intake LLM Observability (US5 ou DD_SITE do .env).
+# Envia um span mínimo ao intake LLM Observability usando só curl (sem pip).
 # Rode na EC2, no diretório do projeto. Não imprime a API key.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-python3 - <<'PY'
-import json, os, time, secrets
-from pathlib import Path
+if [[ ! -f .env ]]; then
+  echo "ERRO: .env não encontrado neste diretório." >&2
+  exit 1
+fi
 
-def load_env(path: Path) -> dict[str, str]:
-    out = {}
-    if not path.exists():
-        return out
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        out[k.strip()] = v.strip().strip('"').strip("'")
-    return out
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
 
-env = {**load_env(Path(".env")), **os.environ}
-api_key = env.get("DD_API_KEY", "")
-site = env.get("DD_SITE", "us5.datadoghq.com").replace("https://", "").replace("http://", "").removeprefix("app.").removeprefix("api.")
-ml_app = env.get("DD_LLMOBS_ML_APP", "retail-assistant")
-dd_env = env.get("DD_ENV", "aws-ec2")
-url = f"https://api.{site}/api/intake/llm-obs/v1/trace/spans"
+if [[ -z "${DD_API_KEY:-}" ]]; then
+  echo "ERRO: DD_API_KEY vazia no .env" >&2
+  exit 1
+fi
 
-if not api_key:
-    raise SystemExit("DD_API_KEY vazia no .env")
+SITE="${DD_SITE:-us5.datadoghq.com}"
+SITE="${SITE#https://}"
+SITE="${SITE#http://}"
+SITE="${SITE#app.}"
+SITE="${SITE#api.}"
+SITE="${SITE%/}"
+ML_APP="${DD_LLMOBS_ML_APP:-retail-assistant}"
+DD_ENV_VAL="${DD_ENV:-aws-ec2}"
+URL="https://api.${SITE}/api/intake/llm-obs/v1/trace/spans"
 
-span_id = str(secrets.randbits(64))
-trace_id = f"{secrets.randbits(128):032x}"
-now = time.time_ns()
-payload = {
-    "data": {
-        "type": "span",
-        "attributes": {
-            "ml_app": ml_app,
-            "session_id": "probe-ec2",
-            "tags": [f"service:retail-gateway", f"env:{dd_env}", "source:probe"],
-            "spans": [
-                {
-                    "name": "retail-customer-chat",
-                    "span_id": span_id,
-                    "trace_id": trace_id,
-                    "parent_id": "undefined",
-                    "start_ns": now,
-                    "duration": 5_000_000.0,
-                    "status": "ok",
-                    "service": "retail-gateway",
-                    "ml_app": ml_app,
-                    "session_id": "probe-ec2",
-                    "meta": {
-                        "kind": "workflow",
-                        "input": {"value": "probe from EC2"},
-                        "output": {"value": "probe ok"},
-                    },
-                }
-            ],
-        },
+SPAN_ID="$(python3 -c 'import secrets; print(secrets.randbits(64))')"
+TRACE_ID="$(python3 -c 'import secrets; print(f"{secrets.randbits(128):032x}")')"
+START_NS="$(python3 -c 'import time; print(time.time_ns())')"
+
+PAYLOAD="$(python3 - <<PY
+import json
+print(json.dumps({
+  "data": {
+    "type": "span",
+    "attributes": {
+      "ml_app": "${ML_APP}",
+      "session_id": "probe-ec2",
+      "tags": ["service:retail-gateway", "env:${DD_ENV_VAL}", "source:probe"],
+      "spans": [{
+        "name": "retail-customer-chat",
+        "span_id": "${SPAN_ID}",
+        "trace_id": "${TRACE_ID}",
+        "parent_id": "undefined",
+        "start_ns": ${START_NS},
+        "duration": 5000000.0,
+        "status": "ok",
+        "service": "retail-gateway",
+        "ml_app": "${ML_APP}",
+        "session_id": "probe-ec2",
+        "meta": {
+          "kind": "workflow",
+          "input": {"value": "probe from EC2"},
+          "output": {"value": "probe ok"}
+        }
+      }]
     }
-}
-
-try:
-    import httpx
-    resp = httpx.post(url, headers={"DD-API-KEY": api_key, "Content-Type": "application/json"}, json=payload, timeout=15.0)
-    status, body = resp.status_code, resp.text[:400]
-except Exception as exc:
-    status, body = "ERR", str(exc)
-
-print(f"intake: {url}")
-print(f"ml_app: {ml_app}  env: {dd_env}  key_len: {len(api_key)}")
-print(f"http: {status}")
-print(f"body: {body!r}")
-if status in (200, 202):
-    print("Intake ACEITOU o span. Abra no Datadog US5:")
-    print(f"  https://app.{site}/llm/traces")
-    print("  LLM Observability → Traces → ml_app:" + ml_app + "  env:" + dd_env)
-else:
-    print("Intake REJEITOU. 403 = site/chave errados. 400 = payload. timeout = egress 443.")
+  }
+}))
 PY
+)"
+
+TMP_BODY="$(mktemp)"
+HTTP_CODE="$(
+  curl -sS -o "$TMP_BODY" -w "%{http_code}" \
+    --connect-timeout 10 --max-time 20 \
+    -X POST "$URL" \
+    -H "DD-API-KEY: ${DD_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD" || echo "000"
+)"
+BODY="$(head -c 400 "$TMP_BODY" 2>/dev/null || true)"
+rm -f "$TMP_BODY"
+
+echo "intake: ${URL}"
+echo "ml_app: ${ML_APP}  env: ${DD_ENV_VAL}  key_len: ${#DD_API_KEY}"
+echo "http: ${HTTP_CODE}"
+echo "body: ${BODY}"
+
+if [[ "$HTTP_CODE" == "200" || "$HTTP_CODE" == "202" ]]; then
+  echo "Intake ACEITOU o span. Abra no Datadog US5:"
+  echo "  https://app.${SITE}/llm/traces"
+  echo "  LLM Observability → Traces → ml_app:${ML_APP}  env:${DD_ENV_VAL}"
+  exit 0
+fi
+
+echo "Intake NÃO aceitou."
+case "$HTTP_CODE" in
+  000) echo "Falha de rede/timeout. Libere HTTPS 443 de saída para api.${SITE}" ;;
+  403) echo "403: DD_SITE ou DD_API_KEY inválidos para esta org." ;;
+  400) echo "400: payload rejeitado." ;;
+  *) echo "Veja o body acima." ;;
+esac
+exit 1
