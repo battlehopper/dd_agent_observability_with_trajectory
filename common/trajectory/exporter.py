@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import httpx
 
@@ -51,7 +51,7 @@ class TrajectoryExporter:
         if not self.settings.trajectory_local_capture:
             return
         EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-        spans: Iterable[dict[str, Any]] = (
+        spans: list[dict[str, Any]] = list(
             payload.get("data", {}).get("attributes", {}).get("spans") or []
         )
         trace_id = "unknown"
@@ -59,4 +59,14 @@ class TrajectoryExporter:
             trace_id = span.get("trace_id") or trace_id
             break
         path = EXPORT_DIR / f"trace-{trace_id}.json"
+        if path.exists():
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+                old = existing.get("data", {}).get("attributes", {}).get("spans") or []
+                merged = {s.get("span_id"): s for s in old}
+                for span in spans:
+                    merged[span.get("span_id")] = span
+                payload["data"]["attributes"]["spans"] = list(merged.values())
+            except (json.JSONDecodeError, OSError, TypeError):
+                payload["data"]["attributes"]["spans"] = spans
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

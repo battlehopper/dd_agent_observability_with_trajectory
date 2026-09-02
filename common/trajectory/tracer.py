@@ -34,8 +34,8 @@ _session_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 _trace_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "trajectory_trace_id", default=None
 )
-_finished_spans: contextvars.ContextVar[list["TrajectorySpan"] | None] = contextvars.ContextVar(
-    "trajectory_finished_spans", default=None
+_span_buffers: contextvars.ContextVar[list[list["TrajectorySpan"]] | None] = contextvars.ContextVar(
+    "trajectory_span_buffers", default=None
 )
 _distributed_parent_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "trajectory_distributed_parent_id", default=None
@@ -49,6 +49,30 @@ def new_id(bits: int = 64) -> str:
 
 def now_ns() -> int:
     return time.time_ns()
+
+
+def _push_buffer() -> list["TrajectorySpan"]:
+    stack = list(_span_buffers.get() or [])
+    buf: list[TrajectorySpan] = []
+    stack.append(buf)
+    _span_buffers.set(stack)
+    return buf
+
+
+def _current_buffer() -> list["TrajectorySpan"]:
+    stack = _span_buffers.get()
+    if not stack:
+        return _push_buffer()
+    return stack[-1]
+
+
+def _pop_buffer() -> list["TrajectorySpan"]:
+    stack = list(_span_buffers.get() or [])
+    if not stack:
+        return []
+    buf = stack.pop()
+    _span_buffers.set(stack)
+    return buf
 
 
 @dataclass
@@ -229,7 +253,7 @@ class TrajectoryTracer:
         _session_id.set(ctx.session_id)
         _distributed_parent_id.set(ctx.parent_id)
         _current_span.set(None)
-        _finished_spans.set([])
+        _push_buffer()
         return ctx
 
     def start_turn(self, session_id: str | None = None) -> str:
@@ -238,7 +262,7 @@ class TrajectoryTracer:
         _trace_id.set(new_id(128))
         _distributed_parent_id.set(None)
         _current_span.set(None)
-        _finished_spans.set([])
+        _span_buffers.set([[]])
         append_event(
             sid,
             {"event": "session_start", "client_source": self.settings.trajectory_client_source},
@@ -305,11 +329,7 @@ class TrajectoryTracer:
         finally:
             span.finish(err)
             _current_span.reset(token)
-            finished = _finished_spans.get()
-            if finished is None:
-                finished = []
-                _finished_spans.set(finished)
-            finished.append(span)
+            _current_buffer().append(span)
             append_event(
                 session_id,
                 {
@@ -330,7 +350,7 @@ class TrajectoryTracer:
                 self.flush()
 
     def flush(self) -> dict[str, Any] | None:
-        finished = _finished_spans.get() or []
+        finished = _pop_buffer()
         if not finished:
             return None
         payload = {
@@ -354,5 +374,4 @@ class TrajectoryTracer:
             }
         }
         result = self.exporter.export(payload)
-        _finished_spans.set([])
         return result

@@ -66,6 +66,15 @@ def test_concierge_delegates_to_processor(settings: Settings, monkeypatch: pytes
     assert "SKU-7781" in out["answer"]
     assert "specialist-delegation" in out["markers"]
     assert "order-lookup" in out["markers"]
+    import json
+
+    exports = list(Path(".trajectory/export").glob("trace-*.json"))
+    assert exports
+    payload = json.loads(exports[0].read_text())
+    services = {s["service"] for s in payload["data"]["attributes"]["spans"]}
+    kinds = {s["meta"]["kind"] for s in payload["data"]["attributes"]["spans"]}
+    assert services == {"retail-gateway", "retail-processor"}
+    assert {"workflow", "agent", "task", "llm", "tool", "retrieval"} <= kinds
 
 
 def test_processor_health() -> None:
