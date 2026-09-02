@@ -84,6 +84,127 @@ cp deploy/.env.ec2.example .env
 ./scripts/start-prod.sh
 ```
 
+## Deploy na AWS EC2
+
+Use `docker-compose.prod.yml`: só o **gateway** fica público na porta **8001**. O processor fala só pela rede Docker. Não há Datadog Agent neste stack — o Trajectory exporta spans direto para o intake HTTP do LLM Observability (saída HTTPS 443).
+
+### 1. Instância e Security Group
+
+| Item | Sugestão |
+| --- | --- |
+| AMI | Amazon Linux 2023 ou Ubuntu 22.04 |
+| Tipo | t3.small ou superior |
+| Inbound | SSH (22) do seu IP; TCP **8001** (gateway) |
+| Não abrir | Porta **8002** (processor interno) |
+| Outbound | HTTPS (443) para Datadog e, se for usar modelo real, OpenAI |
+
+Opcional: Elastic IP para IP fixo.
+
+### 2. Bootstrap na EC2
+
+```bash
+ssh -i sua-chave.pem ec2-user@<IP_PUBLICO>   # Ubuntu: ubuntu@<IP>
+
+sudo mkdir -p /opt/llmagent
+sudo chown "$USER":"$USER" /opt/llmagent
+git clone https://github.com/battlehopper/dd_agent_observability_with_trajectory.git /opt/llmagent
+cd /opt/llmagent
+
+# Branch deste PR (enquanto não estiver no main):
+# git checkout cursor/retail-trajectory-observability-2ec7
+
+chmod +x scripts/*.sh
+./scripts/ec2-setup.sh
+# Reconecte o SSH se o script adicionou seu usuário ao grupo docker
+```
+
+Equivalente manual:
+
+```bash
+sudo ./scripts/ensure-docker.sh
+sudo ./scripts/install-compose.sh   # se `docker compose version` falhar
+sudo usermod -aG docker "$USER"
+```
+
+Erros comuns:
+
+| Sintoma | Correção |
+| --- | --- |
+| `unknown shorthand flag: 'f' in -f` | Falta Compose v2 → `sudo ./scripts/install-compose.sh` |
+| `Cannot connect to the Docker daemon` | `sudo ./scripts/ensure-docker.sh` |
+| `No match for argument: docker-compose-plugin` | Amazon Linux 2: use o binário, não o pacote yum |
+
+### 3. Configurar ambiente
+
+```bash
+export APP_DIR=/opt/llmagent
+cd "$APP_DIR"
+ls -la    # deve listar scripts/, services/, docker-compose.prod.yml
+
+cp deploy/.env.ec2.example .env
+nano .env   # DD_API_KEY, DD_SITE, DD_ENV=aws-ec2
+```
+
+`DD_SITE` tem que ser o do **seu tenant** (ex.: `us5.datadoghq.com`). Site errado → 403 e nenhum trace.
+
+Se `cd /opt/llmagent` falhar, o clone está em outro path:
+
+```bash
+find /opt /home -name "docker-compose.prod.yml" 2>/dev/null
+```
+
+### 4. Subir (detach)
+
+```bash
+cd /opt/llmagent
+./scripts/start-prod.sh
+```
+
+Equivalente:
+
+```bash
+./scripts/compose.sh -f docker-compose.prod.yml up -d --build
+./scripts/compose.sh -f docker-compose.prod.yml ps
+```
+
+| Comando | Efeito |
+| --- | --- |
+| `up -d --build` | Sobe em background; pode fechar o SSH |
+| `logs --tail=50 gateway` | Últimas linhas e sai |
+| `logs -f gateway` | Prende o terminal (só debug) |
+| `down` | Para e remove os containers |
+
+### 5. Testar
+
+Da sua máquina (substitua `<IP_EC2>`):
+
+```bash
+curl -s http://<IP_EC2>:8001/health
+
+curl -s -X POST "http://<IP_EC2>:8001/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Status do pedido BR-10482 e estoque SKU-7781"}'
+```
+
+No Datadog, filtre LLM Observability por `ml_app:retail-assistant` e `env:aws-ec2`.
+
+### 6. Reinício automático (systemd)
+
+Ajuste `User` e `WorkingDirectory` em `deploy/systemd/retail-multiagent.service` se o path ou o usuário não forem `ec2-user` / `/opt/llmagent` (no Ubuntu o usuário costuma ser `ubuntu`):
+
+```bash
+sudo cp deploy/systemd/retail-multiagent.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now retail-multiagent
+sudo systemctl status retail-multiagent
+```
+
+### Boas práticas
+
+- Não commitar `.env`. Em produção real, prefira SSM Parameter Store ou Secrets Manager para `DD_API_KEY`.
+- Coloque ALB + HTTPS (ACM) na frente da porta 8001.
+- `USE_MOCK_LLM=true` na EC2 evita dependência da OpenAI em demos.
+
 ## O que observar no Datadog
 
 | Variável | Onde ver |
@@ -148,6 +269,11 @@ PROCESSOR_URL=http://localhost:8002
 ├── .trajectory/markers.yaml     # Markers de comportamento
 ├── INSTRUMENTATION.md           # Plano de instrumentação
 ├── scripts/
+│   ├── ec2-setup.sh
+│   ├── ensure-docker.sh
+│   ├── install-compose.sh
+│   ├── start-prod.sh
+│   └── compose.sh
 ├── docker-compose.yml
 └── docker-compose.prod.yml
 ```
