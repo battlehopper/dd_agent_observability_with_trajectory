@@ -51,6 +51,8 @@ def test_span_tree_and_payload(settings: Settings) -> None:
     assert kinds["retail-concierge"]["parent_id"] == kinds["retail-customer-chat"]["span_id"]
     assert kinds["concierge-inference"]["meta"]["kind"] == "llm"
     assert kinds["concierge-inference"]["metrics"]["total_tokens"] == 3.0
+    assert kinds["retail-customer-chat"]["span_id"].isdigit()
+    assert len(kinds["retail-customer-chat"]["trace_id"]) == 32
     tags = kinds["concierge-inference"]["tags"]
     assert "trajectory.llm_call:true" in tags
     assert "ml_app:retail-assistant" in tags

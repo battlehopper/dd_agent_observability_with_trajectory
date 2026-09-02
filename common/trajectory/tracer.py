@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import contextvars
 import logging
+import secrets
 import time
 import traceback
-import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Iterator
@@ -43,8 +43,11 @@ _distributed_parent_id: contextvars.ContextVar[str | None] = contextvars.Context
 
 
 def new_id(bits: int = 64) -> str:
-    raw = uuid.uuid4().hex
-    return raw[: bits // 4]
+    """IDs no contrato da API HTTP: span 64-bit decimal; trace 128-bit hex."""
+    n = secrets.randbits(bits)
+    if bits >= 128:
+        return f"{n:032x}"
+    return str(n)
 
 
 def now_ns() -> int:
