@@ -1,0 +1,47 @@
+version: 2
+
+points:
+  - name: order-lookup
+    description: Consulta de status de pedido no ERP
+    severity: info
+    confidence: high
+    emit: metric
+    scope: session
+    match:
+      tool: [http_process]
+      keywords: [pedido, order, br-]
+
+  - name: inventory-lookup
+    description: Consulta de estoque por SKU
+    severity: info
+    confidence: high
+    emit: metric
+    scope: session
+    match:
+      tool: [http_process]
+      keywords: [estoque, sku, inventory]
+
+  - name: return-policy
+    description: Pergunta sobre troca ou devolução
+    severity: info
+    confidence: medium
+    emit: metric
+    scope: session
+    match:
+      tool: [http_process]
+      keywords: [troca, devol, política, politica, return]
+
+  - name: specialist-delegation
+    description: Concierge delegou ao especialista via HTTP
+    severity: info
+    confidence: high
+    emit: metric
+    scope: turn
+    match:
+      tool: [http_process]
+
+measures:
+  - name: specialist-delegations
+    scope: session
+    count:
+      point: specialist-delegation

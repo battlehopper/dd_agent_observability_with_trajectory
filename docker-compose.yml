@@ -1,0 +1,33 @@
+services:
+  processor:
+    build: .
+    command: python -m uvicorn services.processor.main:app --host 0.0.0.0 --port 8002
+    environment:
+      PYTHONPATH: /app
+      DD_API_KEY: ${DD_API_KEY:-}
+      DD_SITE: ${DD_SITE:-datadoghq.com}
+      DD_ENV: ${DD_ENV:-dev}
+      DD_LLMOBS_ML_APP: ${DD_LLMOBS_ML_APP:-retail-assistant}
+      DD_SERVICE_PROCESSOR: retail-processor
+      USE_MOCK_LLM: ${USE_MOCK_LLM:-true}
+      TRAJECTORY_EXPORT: ${TRAJECTORY_EXPORT:-true}
+    ports:
+      - "8002:8002"
+
+  gateway:
+    build: .
+    command: python -m uvicorn services.gateway.main:app --host 0.0.0.0 --port 8001
+    environment:
+      PYTHONPATH: /app
+      PROCESSOR_URL: http://processor:8002
+      DD_API_KEY: ${DD_API_KEY:-}
+      DD_SITE: ${DD_SITE:-datadoghq.com}
+      DD_ENV: ${DD_ENV:-dev}
+      DD_LLMOBS_ML_APP: ${DD_LLMOBS_ML_APP:-retail-assistant}
+      DD_SERVICE_GATEWAY: retail-gateway
+      USE_MOCK_LLM: ${USE_MOCK_LLM:-true}
+      TRAJECTORY_EXPORT: ${TRAJECTORY_EXPORT:-true}
+    ports:
+      - "8001:8001"
+    depends_on:
+      - processor
