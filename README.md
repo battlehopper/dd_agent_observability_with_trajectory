@@ -176,6 +176,20 @@ Equivalente:
 
 ### 5. Testar
 
+Na própria EC2 (Amazon Linux, containers já no ar):
+
+```bash
+cd /opt/llmagent   # ou o diretório do clone (ex. ~/llmagent)
+chmod +x scripts/test-ec2.sh
+./scripts/test-ec2.sh
+```
+
+Uma mensagem só:
+
+```bash
+./scripts/test-ec2.sh "Status do pedido BR-10482 e estoque do SKU-7781"
+```
+
 Da sua máquina (substitua `<IP_EC2>`):
 
 ```bash
