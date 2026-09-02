@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from common.config import Settings
+from common.cost import llm_cost_metadata, llm_cost_tags, token_cost_metrics
 from common.llm import complete_concierge
 from common.trajectory.markers import MarkerEngine
 from common.trajectory.tracer import TrajectoryTracer
@@ -47,13 +48,18 @@ class ConciergeAgent:
                 answer = str(reply.get("answer") or "")
                 agent.annotate(output_value=answer, metadata={"intents": ",".join(intent.get("intents") or [])})
             hits = self.markers.evaluate(tool_events)
+            turn_metrics = token_cost_metrics(
+                intent.get("input_tokens") or 0, intent.get("output_tokens") or 0
+            )
             workflow.annotate(
                 output_value=answer,
                 metadata={
                     "marker_count": float(len(hits)),
                     "markers": ",".join(h.name for h in hits) if hits else "none",
+                    **llm_cost_metadata(turn_metrics),
                 },
-                tags={"trajectory.marker.hits": str(len(hits))},
+                metrics=turn_metrics,
+                tags={"trajectory.marker.hits": str(len(hits)), **llm_cost_tags()},
             )
         return {
             "answer": answer,
@@ -73,6 +79,10 @@ class ConciergeAgent:
                 extra_tags={"trajectory.llm_call": "true"},
             ) as llm:
                 result = complete_concierge(message, self.settings)
+                metrics = token_cost_metrics(
+                    result.get("input_tokens") or 0, result.get("output_tokens") or 0
+                )
+                result["cost_metrics"] = metrics
                 llm.annotate(
                     input_messages=[
                         {"role": "system", "content": "retail concierge intent extraction"},
@@ -82,14 +92,9 @@ class ConciergeAgent:
                     output_value=result.get("summary"),
                     model_name=result.get("model"),
                     model_provider=result.get("provider"),
-                    metrics={
-                        "input_tokens": float(result.get("input_tokens") or 0),
-                        "output_tokens": float(result.get("output_tokens") or 0),
-                        "total_tokens": float(
-                            (result.get("input_tokens") or 0) + (result.get("output_tokens") or 0)
-                        ),
-                    },
-                    metadata={"temperature": 0.0},
+                    metrics=metrics,
+                    metadata={"temperature": 0.0, **llm_cost_metadata(metrics)},
+                    tags=llm_cost_tags(),
                 )
             task.annotate(output_value=result.get("summary"), metadata={"needs_specialist": bool(result.get("needs_specialist"))})
             return result

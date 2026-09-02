@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from common.config import Settings
+from common.cost import llm_cost_metadata, llm_cost_tags, token_cost_metrics
 from common.llm import complete_specialist
 from common.retail_data import lookup_order, lookup_sku, search_policies
 from common.trajectory.tracer import TrajectoryTracer
@@ -40,7 +41,15 @@ class SpecialistAgent:
                 result = self._infer(payload, context)
                 answer = str(result.get("answer") or "")
                 agent.annotate(output_value=answer)
-            workflow.annotate(output_value=answer)
+            metrics = result.get("cost_metrics") or token_cost_metrics(
+                result.get("input_tokens") or 0, result.get("output_tokens") or 0
+            )
+            workflow.annotate(
+                output_value=answer,
+                metrics=metrics,
+                metadata=llm_cost_metadata(metrics),
+                tags=llm_cost_tags(),
+            )
         return {
             "answer": answer,
             "session_id": self.tracer.session_id(),
@@ -99,6 +108,10 @@ class SpecialistAgent:
             extra_tags={"trajectory.llm_call": "true"},
         ) as llm:
             result = complete_specialist(payload, context, self.settings)
+            metrics = token_cost_metrics(
+                result.get("input_tokens") or 0, result.get("output_tokens") or 0
+            )
+            result["cost_metrics"] = metrics
             llm.annotate(
                 input_messages=[
                     {"role": "system", "content": "retail specialist using ERP context"},
@@ -108,12 +121,8 @@ class SpecialistAgent:
                 output_value=result.get("answer"),
                 model_name=result.get("model"),
                 model_provider=result.get("provider"),
-                metrics={
-                    "input_tokens": float(result.get("input_tokens") or 0),
-                    "output_tokens": float(result.get("output_tokens") or 0),
-                    "total_tokens": float(
-                        (result.get("input_tokens") or 0) + (result.get("output_tokens") or 0)
-                    ),
-                },
+                metrics=metrics,
+                metadata=llm_cost_metadata(metrics),
+                tags=llm_cost_tags(),
             )
             return result

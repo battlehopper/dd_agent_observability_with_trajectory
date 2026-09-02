@@ -36,7 +36,7 @@ def test_span_tree_and_payload(settings: Settings) -> None:
                     output_value="olá",
                     model_name="mock-retail-concierge",
                     model_provider="mock",
-                    metrics={"input_tokens": 2, "output_tokens": 1, "total_tokens": 3},
+                    metrics={"input_tokens": 2, "output_tokens": 1, "total_tokens": 3, "total_cost": 1.05e-9},
                 )
         workflow.annotate(output_value="olá")
 
@@ -52,6 +52,7 @@ def test_span_tree_and_payload(settings: Settings) -> None:
     assert kinds["retail-concierge"]["parent_id"] == kinds["retail-customer-chat"]["span_id"]
     assert kinds["concierge-inference"]["meta"]["kind"] == "llm"
     assert kinds["concierge-inference"]["metrics"]["total_tokens"] == 3.0
+    assert kinds["concierge-inference"]["metrics"]["total_cost"] == 1.05e-9
     llm_meta = kinds["concierge-inference"]["meta"]
     assert "value" not in llm_meta.get("input", {})
     assert "value" not in llm_meta.get("output", {})
