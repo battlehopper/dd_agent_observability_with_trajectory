@@ -1,0 +1,16 @@
+[Unit]
+Description=Retail multi-agent (Trajectory LLM Observability)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/llmagent
+User=ec2-user
+ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d --build
+ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
