@@ -20,13 +20,32 @@ class TrajectoryExporter:
 
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.last_result: dict[str, Any] = {"exported": False, "reason": "no_flush_yet"}
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "export_enabled": bool(self.settings.trajectory_export and self.settings.dd_llmobs_enabled),
+            "api_key_configured": self.settings.api_key_configured,
+            "dd_site": self.settings.dd_site_normalized,
+            "intake_url": self.settings.llmobs_intake_url,
+            "ml_app": self.settings.dd_llmobs_ml_app,
+            "env": self.settings.dd_env,
+            "last_export": dict(self.last_result),
+        }
 
     def export(self, payload: dict[str, Any]) -> dict[str, Any]:
         self._write_local(payload)
         if not self.settings.trajectory_export or not self.settings.dd_llmobs_enabled:
-            return {"ok": True, "exported": False, "reason": "export_disabled"}
-        if not self.settings.dd_api_key:
-            return {"ok": True, "exported": False, "reason": "missing_api_key"}
+            self.last_result = {"ok": True, "exported": False, "reason": "export_disabled"}
+            logger.warning("Trajectory export skipped: export_disabled")
+            return self.last_result
+        if not self.settings.api_key_configured:
+            self.last_result = {"ok": True, "exported": False, "reason": "missing_api_key"}
+            logger.error(
+                "Trajectory export skipped: DD_API_KEY vazia. "
+                "Preencha .env e recrie os containers (docker compose up -d --force-recreate)."
+            )
+            return self.last_result
         try:
             response = httpx.post(
                 self.settings.llmobs_intake_url,
@@ -37,15 +56,33 @@ class TrajectoryExporter:
                 json=payload,
                 timeout=10.0,
             )
-            return {
+            self.last_result = {
                 "ok": response.status_code in (200, 202),
                 "exported": True,
                 "status_code": response.status_code,
                 "body": response.text[:500],
+                "intake_url": self.settings.llmobs_intake_url,
             }
+            if self.last_result["ok"]:
+                logger.info(
+                    "Trajectory export ok status=%s site=%s ml_app=%s spans=%s",
+                    response.status_code,
+                    self.settings.dd_site_normalized,
+                    self.settings.dd_llmobs_ml_app,
+                    len(payload.get("data", {}).get("attributes", {}).get("spans") or []),
+                )
+            else:
+                logger.error(
+                    "Trajectory export rejected status=%s site=%s body=%s",
+                    response.status_code,
+                    self.settings.dd_site_normalized,
+                    response.text[:500],
+                )
+            return self.last_result
         except httpx.HTTPError as exc:
-            logger.warning("Trajectory export failed: %s", exc)
-            return {"ok": False, "exported": True, "error": str(exc)}
+            logger.error("Trajectory export failed: %s", exc)
+            self.last_result = {"ok": False, "exported": True, "error": str(exc)}
+            return self.last_result
 
     def _write_local(self, payload: dict[str, Any]) -> None:
         if not self.settings.trajectory_local_capture:

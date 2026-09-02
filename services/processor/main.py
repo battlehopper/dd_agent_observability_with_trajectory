@@ -8,10 +8,12 @@ from fastapi import FastAPI, Request
 from pydantic import BaseModel
 
 from common.config import get_settings
+from common.logging_setup import configure_logging
 from common.trajectory.tracer import TrajectoryTracer
 from services.processor.agent import SpecialistAgent
 
 settings = get_settings()
+configure_logging(settings, settings.dd_service_processor)
 tracer = TrajectoryTracer(service=settings.dd_service_processor, settings=settings)
 agent = SpecialistAgent(settings, tracer)
 
@@ -34,12 +36,13 @@ class ProcessResponse(BaseModel):
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, Any]:
     return {
         "status": "ok",
         "service": settings.dd_service_processor,
         "ml_app": settings.dd_llmobs_ml_app,
         "instrumentation": "trajectory",
+        **tracer.exporter.status(),
     }
 
 

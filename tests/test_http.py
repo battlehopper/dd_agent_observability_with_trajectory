@@ -38,6 +38,7 @@ def test_gateway_health_and_chat(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     health = client.get("/health")
     assert health.status_code == 200
     assert health.json()["instrumentation"] == "trajectory"
+    assert health.json()["api_key_configured"] is False
 
     chat = client.post(
         "/chat",

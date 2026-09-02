@@ -228,6 +228,18 @@ sudo systemctl status retail-multiagent
 
 Se `DD_SITE` estiver errado (ex. `datadoghq.com` numa org US5), o intake retorna API Key invalid (403) e nenhum trace aparece.
 
+**Onde olhar:** LLM Observability / Agent Observability → aplicação `retail-assistant`. Não aparece em APM → Services como um Java/`dd-trace` clássico.
+
+Se o `/chat` funciona na EC2 mas a org continua vazia, rode `./scripts/diagnose-datadog.sh`. A causa mais comum é `DD_API_KEY` vazia **dentro do container** (o `.env` foi preenchido depois do `compose up`, ou o site está errado). Recrie:
+
+```bash
+./scripts/compose.sh -f docker-compose.prod.yml up -d --build --force-recreate
+curl -s http://127.0.0.1:8001/health
+./scripts/test-ec2.sh
+```
+
+O `/health` passa a mostrar `api_key_configured`, `dd_site`, `intake_url` e `last_export`.
+
 ### LLM Observability (visão unificada)
 
 Acesse **LLM Observability → `retail-assistant`**. Um trace de `/chat` deve mostrar:

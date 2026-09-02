@@ -2,6 +2,8 @@ services:
   processor:
     build: .
     command: python -m uvicorn services.processor.main:app --host 0.0.0.0 --port 8002
+    env_file:
+      - .env
     environment:
       PYTHONPATH: /app
       DD_API_KEY: ${DD_API_KEY:-}
@@ -19,6 +21,8 @@ services:
   gateway:
     build: .
     command: python -m uvicorn services.gateway.main:app --host 0.0.0.0 --port 8001
+    env_file:
+      - .env
     environment:
       PYTHONPATH: /app
       PROCESSOR_URL: http://processor:8002
